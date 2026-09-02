@@ -19,9 +19,30 @@ that sits in front of a chat model and gives it:
   pressure (jailbreak attempts, "just give me a bulleted list" requests,
   "are you an AI" questions).
 
+## Assignment scope and status
+
+This was built against a brief asking for a companion core loop —
+persistence, memory extraction/storage, relevant retrieval, contradiction
+handling, and staying in character over 50+ turns — with an evaluation
+harness explicitly scoped as optional and secondary to the core loop.
+
+| Requirement | Status |
+|---|---|
+| Persist across sessions, not just context-window history | **Done.** Verified in `scripts/smoke_test.py`: a fact and its full history survive a process restart. |
+| Extract and store memory, with reasoning for the storage choice | **Done.** Two shapes: predictable attributes get a cheap overwrite path (`user_profile`); everything else goes into an embedded, bi-temporal fact ledger (`memory_facts`) — see "Two shapes of semantic memory" below. |
+| Retrieve relevantly | **Done.** Hybrid vector + lexical search, RRF-fused, reranked by importance and decay, MMR-deduped, token-budgeted (`graph/nodes/retrieve.py`). |
+| Update and decay (contradiction handling) | **Done.** An adjudicator call classifies each candidate as NEW / DUPLICATE / REFINEMENT / CONTRADICTION / EPISODIC_ONLY; a CONTRADICTION supersedes the old fact instead of adding alongside it. Nothing is ever deleted. |
+| Stay in character over 50+ turns, under topic pressure | **Done.** A hand-written persona canon plus a guard node that checks every reply against the persona's own commitments and against generic-assistant flattening, regenerating once on conflict. Verified with a 55-turn scripted run (`scripts/test_long_conversation.py`). |
+| Evaluation harness (optional) | **Partially done, by design.** Built the deterministic, store-level tier (`eval/`): extraction precision/recall, retrieval recall@k/MRR, supersession accuracy — no LLM judge needed. Did not build the LLM-as-judge / oracle-baseline tier, per the brief's own instruction not to spend core-loop time getting there. |
+| UI, auth, voice/image, infra scale | Explicitly out of scope — skipped as instructed. |
+
 ## How it works
 
-Each turn moves through two stages:
+The first time a user talks to the companion, they pick a persona — Mira
+or Esha (`persona/registry.py`) — which is stored on their user record and
+never asked again.
+
+Each turn after that moves through two stages:
 
 1. **Reply.** Fetch relevant memories, build a prompt, generate a reply,
    then check that reply against the companion's own past claims and
@@ -65,19 +86,22 @@ flowchart TD
 Solid arrows are the synchronous per-turn path; dashed arrows are the
 background write path and reads/writes against Postgres.
 
+## Demo video
+
+[Watch on Loom](https://www.loom.com/share/0541479317e246a58856f915381f64f7)
+
 ## Tech stack
 
-| Concern | Choice |
-|---|---|
-| Orchestration | LangGraph (`StateGraph`) |
-| Chat + structured extraction | OpenAI, via LangChain's `ChatOpenAI` with Structured Outputs (strict JSON schema, not "JSON mode") |
-| Embeddings | OpenAI `text-embedding-3-small` |
-| System of record | PostgreSQL + `pgvector` + `pg_trgm` |
-| Cache / checkpoint store | Redis |
-| DB driver | `psycopg3` (async), hand-written SQL — no ORM |
-| Config | `pydantic-settings`, `.env` |
-| Logging | `structlog` |
-| Dependency/env management | `uv` |
+| Concern | Choice | Why |
+|---|---|---|
+| Orchestration | LangGraph (`StateGraph`) | The core loop is a real multi-step pipeline, not one call — a graph makes the steps and the async write path explicit. |
+| Chat + structured extraction | OpenAI via LangChain's `ChatOpenAI`, Structured Outputs (strict JSON schema, not "JSON mode") | Extraction and adjudication need a guaranteed schema, not "usually valid JSON." |
+| Embeddings | OpenAI `text-embedding-3-small` | Cheap and fast — more than enough for a personal-scale fact store. |
+| System of record | PostgreSQL + `pgvector` + `pg_trgm` | Needed a real bi-temporal schema and a hybrid vector+lexical query — that's SQL, not a key-value memory store. |
+| Cache / checkpoint store | Redis | Thread checkpoints, embedding cache, short-lived retrieval cache — never a source of truth. |
+| DB driver | `psycopg3` (async), hand-written SQL — no ORM | The value is in specific, tuned queries (RRF fusion, bi-temporal updates) that should stay visible. |
+| Config / logging | `pydantic-settings`, `.env` / `structlog` | Typed config in one place; structured logs so an async background failure traces back to the exact turn. |
+| Dependency/env management | `uv` | Fast, reproducible; dependency groups keep eval-only deps out of the core install. |
 
 ## Why two datastores
 
