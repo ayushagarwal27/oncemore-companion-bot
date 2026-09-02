@@ -1,0 +1,37 @@
+# The brief's own canonical example: plant a relationship fact, revisit it,
+# probe recall, then contradict it with a breakup and check the old belief
+# is retired rather than left sitting active alongside the new one.
+name: breakup_relationship
+description: >
+  Plant a relationship fact, probe recall of it, contradict it with a
+  breakup, then probe recall again to confirm the new state is what comes
+  back.
+
+turns:
+  - text: "hey, how's it going"
+    plants: []
+
+  - text: "not much to report, work's been fine, how about you"
+    plants: []
+
+  - text: "so I'm dating someone new, her name's priya, it's going really well"
+    plants:
+      - key: relationship_start
+        keywords: ["priya"]
+
+  - text: "what do you think about pineapple on pizza"
+    plants: []
+
+  - text: "who am I seeing right now, remind me"
+    probe:
+      expects: [relationship_start]
+
+  - text: "priya and I broke up yesterday, it's over between us"
+    plants:
+      - key: breakup
+        keywords: ["priya", "broke up"]
+    contradicts: [relationship_start]
+
+  - text: "who am I dating right now, if anyone"
+    probe:
+      expects: [breakup]

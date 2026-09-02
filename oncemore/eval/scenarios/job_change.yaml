@@ -1,0 +1,33 @@
+# Same shape as breakup_relationship.yaml but on a FactType.PLAN slot
+# instead of RELATIONSHIP, so the adjudicator is exercised on a different
+# kind of contradiction (a plan falling through, not a status reversal).
+name: job_change
+description: >
+  Plant an upcoming-move plan, probe recall of it, contradict it when the
+  move falls through, then probe recall again.
+
+turns:
+  - text: "hey"
+    plants: []
+
+  - text: "I just accepted a new job offer, I'm moving to berlin for it next month"
+    plants:
+      - key: berlin_move
+        keywords: ["berlin"]
+
+  - text: "kind of nervous about it if I'm honest, big change"
+    plants: []
+
+  - text: "where am I moving to again"
+    probe:
+      expects: [berlin_move]
+
+  - text: "actually never mind, the berlin move fell through, the offer got pulled, I'm staying put"
+    plants:
+      - key: move_cancelled
+        keywords: ["berlin"]
+    contradicts: [berlin_move]
+
+  - text: "am I still moving to berlin"
+    probe:
+      expects: [move_cancelled]
